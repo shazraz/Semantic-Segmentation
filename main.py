@@ -5,7 +5,6 @@ import warnings
 from distutils.version import LooseVersion
 import project_tests as tests
 
-
 # Check TensorFlow Version
 assert LooseVersion(tf.__version__) >= LooseVersion('1.0'), 'Please use TensorFlow version 1.0 or newer.  You are using {}'.format(tf.__version__)
 print('TensorFlow Version: {}'.format(tf.__version__))
@@ -15,6 +14,7 @@ if not tf.test.gpu_device_name():
     warnings.warn('No GPU found. Please use a GPU to train your neural network.')
 else:
     print('Default GPU Device: {}'.format(tf.test.gpu_device_name()))
+
 
 def load_vgg(sess, vgg_path):
     """
@@ -44,6 +44,7 @@ def load_vgg(sess, vgg_path):
 
 tests.test_load_vgg(load_vgg, tf)
 
+
 def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     """
     Create the layers for a fully convolutional network.  Build skip-layers using the vgg layers.
@@ -53,8 +54,29 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     :param num_classes: Number of classes to classify
     :return: The Tensor for the last layer of output
     """
-    # TODO: Implement function
-    return None
+
+    weight_scale = 1e-3
+    reg = tf.contrib.layers.l2_regularizer(scale=weight_scale)
+    # Apply 1x1 convolution to layer 7 output to produce layer 7 class predictions
+    l7_1x1 = tf.layers.conv2d(vgg_layer7_out, num_classes, 1, (1,1), padding='same', kernel_regularizer=reg)
+    # Upsample layer 7 class predictions by 4x
+    l4_part1 = tf.layers.conv2d_transpose(l7_1x1, num_classes, 4, 2, padding='same', kernel_regularizer=reg)
+    # Apply 1x1 convolution to layer 4 output to produce layer 4 class predictions
+    l4_part2 = tf.layers.conv2d(vgg_layer4_out, num_classes, 1, (1,1), padding='same', kernel_regularizer=reg)
+    # Apply skip connections to layer 4
+    l4_merged = tf.add(l4_part1, l4_part2)
+    # Upsample the merged layer 4
+    l3_part1 = tf.layers.conv2d_transpose(l4_merged, num_classes, 4, 2, padding='same', kernel_regularizer=reg)
+    # Apply 1x1 convolution to layer 3 output to produce layer 3 class predictions
+    l3_part2 = tf.layers.conv2d(vgg_layer3_out, num_classes, 1, (1, 1), padding='same', kernel_regularizer=reg)
+    # Apply skip connection to layer 3
+    l3_merged = tf.add(l3_part1, l3_part2)
+    # Upsample the merged layer 3
+    output = tf.layers.conv2d_transpose(l3_merged, num_classes, 16, 8, padding='same', kernel_regularizer=reg)
+
+    return output
+
+
 tests.test_layers(layers)
 
 
@@ -67,8 +89,15 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     :param num_classes: Number of classes to classify
     :return: Tuple of (logits, train_op, cross_entropy_loss)
     """
-    # TODO: Implement function
-    return None, None, None
+    logits = tf.reshape(nn_last_layer, (-1, num_classes))
+    correct_label = tf.reshape(correct_label, (-1, num_classes))
+    cross_entropy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=correct_label))
+    optimizer = tf.train.AdamOptimizer(learning_rate= learning_rate)
+    train_op = optimizer.minimize(cross_entropy_loss)
+
+    return logits, train_op, cross_entropy_loss
+
+
 tests.test_optimize(optimize)
 
 
